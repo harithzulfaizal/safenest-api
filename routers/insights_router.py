@@ -144,7 +144,7 @@ class PriorityOutput(BaseModel):
 class InsightOutput(BaseModel):
     financial_goal: str = Field(
         ...,
-        description="User's financial goal based on the user's profile"
+        description="Insight category (eg: debt, savings, etc.) based on the user's goal(s)"
     )
     detailed_insight: str = Field(
         ...,
