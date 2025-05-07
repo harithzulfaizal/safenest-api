@@ -24,13 +24,14 @@ app = FastAPI(
 # For development, you might allow your local React app's origin.
 # For production, you'd list your actual frontend domain(s).
 origins = [
-    "http://localhost:3000",  # Your React frontend
+    # "http://localhost:3000",
+    "*"  # Your React frontend
     # Add other origins if needed, e.g., your deployed frontend URL
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Allows specific origins
+    allow_origins=["*"],  # Allows specific origins
     allow_credentials=True, # Allows cookies to be included in requests
     allow_methods=["*"],    # Allows all methods (GET, POST, PUT, DELETE, etc.)
     allow_headers=["*"],    # Allows all headers

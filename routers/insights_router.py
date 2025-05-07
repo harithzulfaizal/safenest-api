@@ -21,6 +21,11 @@ from core.tools import execute_python_code
 
 model = GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=os.environ['GEMINI_API_KEY']))
 
+# from pydantic_ai.models.openai import OpenAIModel
+# from pydantic_ai.providers.openai import OpenAIProvider
+
+# model = OpenAIModel('gpt-4o', provider=OpenAIProvider(api_key=os.environ['OPENAI_API_KEY']))
+
 router = APIRouter(
     prefix="/users/{user_id}/insights",
     tags=["User Insights"],
