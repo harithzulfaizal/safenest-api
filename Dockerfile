@@ -1,37 +1,40 @@
 # 1. Choose a base Python image
 FROM python:3.10-slim
 
-# 2. Set environment variables for Python for best practices in Docker
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+# 2. Set environment variables for Python
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# 3. Set up the working directory in the container
+# 3. Set up the working directory
 WORKDIR /app
 
-# 4. Copy the requirements file first to leverage Docker cache
+# 4. Copy requirements.txt
 COPY requirements.txt .
 
-# 5. Install Python dependencies
-# Using --no-cache-dir to reduce image size
+# 5. (OPTIONAL - FOR DEBUGGING) Install common build dependencies
+# If pip errors indicate missing compilers or dev headers, uncomment the next lines:
+# RUN apt-get update && \
+#     apt-get install -y --no-install-recommends \
+#     build-essential \
+#     libffi-dev \
+#     python3-dev && \
+#     rm -rf /var/lib/apt/lists/*
+
+# 6. Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy all your application code into the working directory
-# Copy top-level Python files
+# 7. Copy all your application code
 COPY __init__.py .
 COPY config.py .
 COPY database.py .
 COPY main.py .
 COPY models.py .
 COPY services.py .
-
-# Copy subdirectories
 COPY core ./core
 COPY routers ./routers
 
-# 7. Expose the port your application runs on (as defined in main.py for Uvicorn)
+# 8. Expose the port
 EXPOSE 8000
 
-# 8. Define the command to run your application
-# IMPORTANT: You will need to pass the SUPABASE_URL, SUPABASE_SERVICE_KEY,
-# and GEMINI_API_KEY environment variables when running the container.
+# 9. Define the command to run your application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
