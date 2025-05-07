@@ -4,6 +4,7 @@
 import asyncio
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
+import traceback # Added for more detailed error logging
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status, Body
 import os
@@ -19,11 +20,27 @@ from database import get_supabase_client
 from core.prompts import financial_analysis_prompt_template, prioritization_prompt, debt_prompt, savings_prompt
 from core.tools import execute_python_code
 
-model = GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=os.environ['GEMINI_API_KEY']))
+# Ensure GEMINI_API_KEY is set in your environment variables
+# For example, you can load it from a .env file using python-dotenv in your main.py or config.py
+# from dotenv import load_dotenv
+# load_dotenv()
+
+# Initialize the Gemini Model
+# It's good practice to handle potential missing API key error during startup or here
+try:
+    gemini_api_key = os.environ['GEMINI_API_KEY']
+    if not gemini_api_key:
+        raise KeyError("GEMINI_API_KEY environment variable not set or empty.")
+    model = GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=gemini_api_key))
+except KeyError as e:
+    print(f"CRITICAL ERROR: {e}. Please set the GEMINI_API_KEY environment variable.")
+    # You might want to raise an exception here to prevent the app from starting without the key,
+    # or handle it in a way that AI features are gracefully disabled.
+    # For this example, we'll let it potentially fail later if model is used without being initialized.
+    model = None # Or some placeholder that indicates AI is not available
 
 # from pydantic_ai.models.openai import OpenAIModel
 # from pydantic_ai.providers.openai import OpenAIProvider
-
 # model = OpenAIModel('gpt-4o', provider=OpenAIProvider(api_key=os.environ['OPENAI_API_KEY']))
 
 router = APIRouter(
@@ -73,47 +90,52 @@ async def _fetch_user_financial_data(
         raise http_exc # Re-raise if it's already an HTTPException
     except Exception as e:
         print(f"Error fetching data for user {user_id} for report generation: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while fetching user data for the report."
         )
 
 async def _run_ai_agent(
-    agent: Any, # Changed from Agent to Any to avoid direct pydantic_ai dependency here if not used
+    agent: Any, 
     input_str: str,
     user_id: int,
     agent_name: str
 ) -> Any:
     """
-    Helper function to run an AI agent.
+    Helper function to run a pydantic-ai Agent asynchronously.
     Handles potential errors during agent execution.
     """
-    # This function relies on pydantic_ai.Agent. If not using it, this needs to be adapted.
-    # For now, we'll keep the structure but acknowledge the dependency.
-    if agent is None or not hasattr(agent, "run_sync"): # Check if agent is usable
-        print(f"Warning: AI Agent '{agent_name}' is not configured or pydantic_ai is not available.")
-        # Return a mock or error response structure if AI features are optional
-        # For this example, we'll raise an error if it's called without a proper agent.
+    if agent is None: # Simplified check, assumes 'agent' is a pydantic_ai.Agent instance
+        print(f"Error: AI Agent '{agent_name}' is not initialized (e.g., API key missing or other setup issue).")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"AI Agent '{agent_name}' is not available."
+            detail=f"AI Agent '{agent_name}' is not available due to configuration error."
         )
+    
+    if not hasattr(agent, "run") or not asyncio.iscoroutinefunction(agent.run):
+        print(f"Error: AI Agent '{agent_name}' does not have a compatible async 'run' method.")
+        # This might indicate an issue with the pydantic_ai version or agent setup
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, # Or 503
+            detail=f"AI Agent '{agent_name}' is not configured correctly for async operation."
+        )
+
     try:
-        print(f"Running {agent_name} for user_id: {user_id}...")
-        loop = asyncio.get_event_loop()
-        # The 'run_sync' method might be from pydantic_ai.
-        agent_response = await loop.run_in_executor(None, agent.run_sync, input_str)
+        print(f"Running {agent_name} for user_id: {user_id} asynchronously...")
+        # Directly await the agent's asynchronous run method
+        agent_response = await agent.run(input_str) 
         print(f"{agent_name} processing completed for user_id: {user_id}.")
         return agent_response
     except Exception as e:
         print(f"Error running {agent_name} for user {user_id}: {str(e)}")
+        traceback.print_exc() 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while generating the report with {agent_name}."
         )
 
 # --- Pydantic Models for AI Agent Outputs (if used) ---
-# These were part of the original file, ensure they are defined or imported if used by AI agents.
 class PriorityOutput(BaseModel):
     user_id: int
     priority: List[Literal['debt', 'savings']]
@@ -143,7 +165,7 @@ class InsightOutput(BaseModel):
     "/financial_report",
     summary="Generate a financial diagnostic report and insights for a user",
     description="Generates a comprehensive financial report using AI, analyzes it for debt and savings insights, prioritizes actions, and stores the results.",
-    response_model=Dict[str, Any], # Adjust response model as needed, e.g., a specific Pydantic model
+    response_model=Dict[str, Any], 
     status_code=status.HTTP_201_CREATED
 )
 async def generate_financial_report_and_insights_endpoint(
@@ -155,18 +177,23 @@ async def generate_financial_report_and_insights_endpoint(
     Endpoint to generate a financial report, derive insights, and save them.
     This endpoint orchestrates multiple AI agents if they are configured.
     """
+    if model is None: # Check if the AI model was initialized
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI services are currently unavailable due to configuration issues (e.g., missing API key)."
+        )
+        
     # --- 1. Fetch User Data ---
     fetched_data = await _fetch_user_financial_data(user_id, supabase, definitions_map)
 
     user_profile_str = fetched_data["user_profile_str"]
-    financial_knowledge_data = fetched_data["financial_knowledge_data"] # This is now a list of dicts
+    financial_knowledge_data = fetched_data["financial_knowledge_data"] 
     income_details_data = fetched_data["income_details_data"]
     debt_details_data = fetched_data["debt_details_data"]
     expense_details_data = fetched_data["expense_details_data"]
 
     # --- 2. Prepare Input for Initial Financial Analysis Agent ---
-    # Convert list of dicts to string representations if needed by the AI agent
-    financial_knowledge_str = str(financial_knowledge_data) # Simple string conversion
+    financial_knowledge_str = str(financial_knowledge_data) 
     income_str = str(income_details_data)
     debt_str = str(debt_details_data)
     expense_str = str(expense_details_data)
@@ -187,7 +214,7 @@ async def generate_financial_report_and_insights_endpoint(
     Expense Details (Transactions):
     {expense_str}
     """
-    print(f"Initial AI input for user {user_id}:\n{initial_agent_input_data_str[:500]}...") # Log snippet
+    print(f"Initial AI input for user {user_id}:\n{initial_agent_input_data_str[:500]}...")
 
     financial_agent = Agent(
         model=model,
@@ -197,12 +224,12 @@ async def generate_financial_report_and_insights_endpoint(
         financial_agent, initial_agent_input_data_str, user_id, "Financial Analysis Agent"
     )
     
-    report_time = datetime.now().isoformat()
+    report_time = datetime.now().isoformat() # Changed from datetime.utcnow() to datetime.now() for local timezone if preferred, or keep utcnow() for consistency.
     financial_report_markdown = financial_agent_response.data
 
     financial_analysis_for_downstream = {
         "user_id": user_id,
-        "report_generated_at": report_time, 
+        "report_generated_at": report_time,  
         "financial_report_markdown": financial_report_markdown
     }
 
@@ -225,8 +252,11 @@ async def generate_financial_report_and_insights_endpoint(
     debt_agent_response = await _run_ai_agent(
         debt_agent, agent_input_for_downstream_agents, user_id, "Debt Agent"
     )
-    print(debt_agent_response.all_messages())
-    debt_raw_results = '\n'.join([str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:]])
+    print("Debt Agent Messages Trace:")
+    for msg in debt_agent_response.all_messages():
+        print(f"  Role: {msg.role}, Content: {msg.parts[0].content[:200] if msg.parts and msg.parts[0].content else 'N/A'}...") # Print snippet
+    debt_raw_results = '\n'.join([str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
+
 
     debt_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and credit.
 Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
@@ -250,8 +280,10 @@ Your insights must be backed by analysis and data, it is crucial for you to show
     savings_agent_response = await _run_ai_agent(
         savings_agent, agent_input_for_downstream_agents, user_id, "Savings Agent"
     )
-    print(savings_agent_response.all_messages())
-    savings_raw_results = '\n'.join([str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:]])
+    print("Savings Agent Messages Trace:")
+    for msg in savings_agent_response.all_messages():
+         print(f"  Role: {msg.role}, Content: {msg.parts[0].content[:200] if msg.parts and msg.parts[0].content else 'N/A'}...") # Print snippet
+    savings_raw_results = '\n'.join([str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
 
     savings_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
 Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
@@ -277,17 +309,21 @@ Your insights must be backed by analysis and data, it is crucial for you to show
 
     db_data_to_upsert = {
         "user_id": user_id,
-        "insights": insights_payload_for_db
+        "insights": insights_payload_for_db,
+        # "updated_at" will be handled by Supabase default (NOW()) on insert/update
     }
 
     try:
         print(f"Upserting insights for user_id: {user_id} to Supabase.")
+        # Using upsert with on_conflict for 'user_id' if you want to update existing insights,
+        # or insert if you want to keep a history (requires 'users_insights' to not have user_id as PK alone).
+        # Assuming 'users_insights' has 'insight_id' as PK and 'user_id' as a column that might not be unique
+        # if you store multiple insights over time. If 'user_id' is unique for latest, then upsert on user_id.
+        # For this example, we'll use simple insert, assuming each call generates a new insight record.
         response = supabase.table("users_insights").insert(
-            db_data_to_upsert # insights_id will be auto-generated
+            db_data_to_upsert 
         ).execute()
 
-        # Supabase Python client v1.x .execute() returns a PostgrestAPIResponse object.
-        # Access .data for results, .error for errors.
         if hasattr(response, 'error') and response.error:
             print(f"Error from Supabase during insert for user {user_id}: {response.error.message}")
             raise HTTPException(
@@ -296,25 +332,19 @@ Your insights must be backed by analysis and data, it is crucial for you to show
             )
         if not response.data:
             print(f"Warning: Supabase insert for user {user_id} returned no data. RLS or other issue?")
-            # This might be okay if RLS prevents returning the inserted row, but the insert succeeded.
-            # Or it could indicate an issue.
-
+        
         print(f"Successfully inserted insights for user_id: {user_id}.")
-        # If you need the created insight_id, it should be in response.data[0]['insight_id']
-
+        
     except HTTPException as http_exc:
-        raise http_exc # Re-raise known HTTP exceptions
+        raise http_exc 
     except Exception as e:
         print(f"Error upserting insights for user {user_id} to Supabase: {str(e)}")
-        import traceback
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred while saving insights: {str(e)}"
         )
 
-    # --- 5. Return Response ---
-    # The response can be the stored payload or a summary.
     return {
         "message": "Financial report and insights generated and stored successfully.",
         "user_id": user_id,
@@ -324,7 +354,7 @@ Your insights must be backed by analysis and data, it is crucial for you to show
 
 @router.get(
     "/latest",
-    response_model=Optional[app_models.UserInsightResponse], # Can be None if no insights found
+    response_model=Optional[app_models.UserInsightResponse], 
     summary="Get the latest financial insight for a user",
     description="Retrieves the most recent insight record for the specified user, based on the 'updated_at' timestamp.",
     status_code=status.HTTP_200_OK
@@ -340,21 +370,18 @@ async def get_latest_user_insight_endpoint(
     try:
         latest_insight = await services.fetch_latest_user_insight(user_id=user_id, supabase=supabase)
         if not latest_insight:
+            # Return 404 directly, service layer might not raise HTTPException for not found, but return None.
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No insights found for user ID {user_id}."
             )
         return latest_insight
     except HTTPException as http_exc:
-        # Re-raise HTTPExceptions that services might throw (e.g., user not found from check_user_exists)
         raise http_exc
     except Exception as e:
         print(f"Unexpected error in GET /users/{user_id}/insights/latest endpoint: {e}")
-        # Log the full error for debugging
-        import traceback
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected server error occurred: {str(e)}"
         )
-
