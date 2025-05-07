@@ -223,3 +223,29 @@ class TokenData(BaseModel):
     """Data/payload contained within a JWT."""
     email: Optional[EmailStr] = None
     user_id: Optional[int] = None # Added user_id to token data
+
+# --- User Insights Models ---
+class UserInsightBase(BaseModel):
+    """Base model for user insights."""
+    user_id: int = Field(..., description="Foreign key referencing the user.")
+    insights: Dict[str, Any] = Field(..., description="JSONB field containing various insights.")
+    updated_at: datetime = Field(..., description="Timestamp of when these insights were last updated or created.")
+
+class UserInsightRecord(UserInsightBase):
+    """Represents a user insight record from the database."""
+    insight_id: int = Field(..., description="Unique identifier for the insight record.")
+
+    class Config:
+        orm_mode = True
+        # model_config = {"from_attributes": True} # Pydantic V2
+
+class UserInsightCreate(BaseModel):
+    """Model for creating a new user insight."""
+    user_id: int
+    insights: Dict[str, Any]
+    # updated_at is handled by the database default
+
+class UserInsightResponse(UserInsightRecord):
+    """Response model for user insights, includes all fields."""
+    pass
+
