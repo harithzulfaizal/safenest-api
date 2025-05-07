@@ -1,8 +1,10 @@
-# models.py
+# ================================================
+# FILE: models.py
+# ================================================
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
-from datetime import datetime
-from pydantic import BaseModel, Field
+from datetime import datetime, timedelta # Added timedelta
+from pydantic import BaseModel, Field, EmailStr
 
 # --- Pydantic Models for Data Structuring ---
 
@@ -107,7 +109,7 @@ class IncomeDetail(IncomeDetailBase):
 
     class Config:
         orm_mode = True
-        # model_config = {"from_attributes": True} # Pydantic V2
+        # model_config = {"from_attributes": True}
 
 # Debt Models
 class DebtDetailBase(BaseModel):
@@ -132,7 +134,7 @@ class DebtDetail(DebtDetailBase):
 
     class Config:
         orm_mode = True
-        # model_config = {"from_attributes": True} # Pydantic V2
+        # model_config = {"from_attributes": True}
 
 # Expense Models
 class ExpenseDetailBase(BaseModel):
@@ -140,7 +142,6 @@ class ExpenseDetailBase(BaseModel):
     expense_category: Optional[str] = Field(None, description="Category of the expense (e.g., Housing, Food, Transport)", example="Groceries")
     monthly_amount: Optional[Decimal] = Field(None, description="Estimated or actual monthly amount for this expense", example=300.00)
     description: Optional[str] = Field(None, description="Additional details about the expense", example="Weekly grocery shopping")
-    # CORRECTED: Removed 'None' as the first argument to Field when default_factory is used.
     timestamp: Optional[datetime] = Field(description="Timestamp of when the expense was recorded or occurred (if applicable)", default_factory=datetime.utcnow)
 
 class ExpenseDetailCreate(ExpenseDetailBase):
@@ -149,7 +150,6 @@ class ExpenseDetailCreate(ExpenseDetailBase):
 
 class ExpenseDetailUpdate(ExpenseDetailBase):
     """Model for updating an expense detail record. All fields are optional."""
-    # Ensure timestamp is truly optional for updates if it's not always provided
     timestamp: Optional[datetime] = Field(None, description="Timestamp of when the expense was recorded or occurred (if applicable)")
 
 
@@ -160,9 +160,9 @@ class ExpenseDetail(ExpenseDetailBase):
 
     class Config:
         orm_mode = True
-        # model_config = {"from_attributes": True} # Pydantic V2
+        # model_config = {"from_attributes": True}
 
-# Comprehensive User Details (No changes needed for this request)
+# Comprehensive User Details
 class ComprehensiveUserDetails(BaseModel):
     """
     A comprehensive model that aggregates all financial details for a user.
@@ -176,4 +176,50 @@ class ComprehensiveUserDetails(BaseModel):
 
     class Config:
         orm_mode = True
-        # model_config = {"from_attributes": True} # Pydantic V2
+        # model_config = {"from_attributes": True}
+
+# --- User Login Models (Registration) ---
+class UserLoginCreate(BaseModel):
+    """Model for creating new login credentials for a user during registration."""
+    user_id: int = Field(..., description="The ID of the user to associate these login credentials with", example=1)
+    email: EmailStr = Field(..., description="User's email address for login", example="user@example.com")
+    password: str = Field(..., min_length=8, description="User's password (will be securely hashed before storage)", example="securepassword123")
+
+class UserLoginResponse(BaseModel):
+    """Model for the response after creating user login credentials (registration)."""
+    login_id: int = Field(..., description="The ID of the login record created")
+    user_id: int = Field(..., description="The ID of the user")
+    email: EmailStr = Field(..., description="User's email address")
+    last_login: Optional[datetime] = Field(None, description="Timestamp of the last successful login, null on creation")
+    created_at: Optional[datetime] = Field(None, description="Timestamp of when the login record was created")
+    updated_at: Optional[datetime] = Field(None, description="Timestamp of when the login record was last updated")
+
+    class Config:
+        orm_mode = True
+        # model_config = {"from_attributes": True}
+
+# --- User Login Models (Authentication) ---
+class UserLoginRequest(BaseModel):
+    """Model for user login request (authentication)."""
+    email: EmailStr = Field(..., description="User's email address for login", example="user@example.com")
+    password: str = Field(..., description="User's password", example="securepassword123")
+
+class UserLoginSuccessResponse(BaseModel):
+    """Model for a successful login response (simple version, no token)."""
+    user_id: int = Field(..., description="The ID of the logged-in user")
+    email: EmailStr = Field(..., description="User's email address")
+    message: str = Field(default="Login successful", description="Login status message")
+
+    class Config:
+        orm_mode = True # Important if you are returning ORM objects directly
+
+# --- Token Models (for JWT - can be used later if full auth is implemented) ---
+class Token(BaseModel):
+    """Model for the JWT access token."""
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    """Data/payload contained within a JWT."""
+    email: Optional[EmailStr] = None
+    user_id: Optional[int] = None # Added user_id to token data

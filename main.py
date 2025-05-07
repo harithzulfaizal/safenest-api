@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware # Import CORSMiddleware
 from config import APP_TITLE, APP_DESCRIPTION, APP_VERSION
 
 # Import router modules
-from routers import users_router, financial_knowledge_router, insights_router
+from routers import users_router, financial_knowledge_router, insights_router, auth_router
 
 # Import database utility
 from database import init_supabase_client
@@ -47,6 +47,8 @@ async def startup_event():
 app.include_router(users_router.router)
 app.include_router(financial_knowledge_router.router)
 app.include_router(insights_router.router)
+app.include_router(auth_router.router)
+
 
 @app.get("/", summary="Root Endpoint", tags=["General"])
 async def read_root():
