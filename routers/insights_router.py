@@ -252,9 +252,6 @@ async def generate_financial_report_and_insights_endpoint(
     debt_agent_response = await _run_ai_agent(
         debt_agent, agent_input_for_downstream_agents, user_id, "Debt Agent"
     )
-    print("Debt Agent Messages Trace:")
-    for msg in debt_agent_response.all_messages():
-        print(f"  Role: {msg.role}, Content: {msg.parts[0].content[:200] if msg.parts and msg.parts[0].content else 'N/A'}...") # Print snippet
     debt_raw_results = '\n'.join([str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
 
 
@@ -280,9 +277,6 @@ Your insights must be backed by analysis and data, it is crucial for you to show
     savings_agent_response = await _run_ai_agent(
         savings_agent, agent_input_for_downstream_agents, user_id, "Savings Agent"
     )
-    print("Savings Agent Messages Trace:")
-    for msg in savings_agent_response.all_messages():
-         print(f"  Role: {msg.role}, Content: {msg.parts[0].content[:200] if msg.parts and msg.parts[0].content else 'N/A'}...") # Print snippet
     savings_raw_results = '\n'.join([str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
 
     savings_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
