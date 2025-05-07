@@ -8,11 +8,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, status, Body
 import os
 from pydantic import BaseModel, Field
-# Ensure pydantic_ai and its dependencies are installed if you use them.
-# For this example, we'll assume they are available if the original code uses them.
-# from pydantic_ai import Agent, RunContext, Tool # type: ignore
-# from pydantic_ai.providers.google_gla import GoogleGLAProvider # type: ignore
-# from pydantic_ai.models.gemini import GeminiModel # type: ignore
+from pydantic_ai import Agent, RunContext, Tool # type: ignore
+from pydantic_ai.providers.google_gla import GoogleGLAProvider # type: ignore
+from pydantic_ai.models.gemini import GeminiModel # type: ignore
 
 import services
 import models as app_models # Renamed to avoid conflict if 'models' is used by pydantic_ai
@@ -21,18 +19,7 @@ from database import get_supabase_client
 from core.prompts import financial_analysis_prompt_template, prioritization_prompt, debt_prompt, savings_prompt
 from core.tools import execute_python_code
 
-# --- AI Model Configuration (Example, replace with your actual setup) ---
-# Ensure API key is securely managed, e.g., via environment variables
-# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# if not GEMINI_API_KEY:
-#     print("Warning: GEMINI_API_KEY environment variable not set. AI features may not work.")
-#     # model = None # Or some default mock model
-# else:
-#     # model = GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=GEMINI_API_KEY)) # type: ignore
-#     pass # Initialize your model here if needed
-
-# Placeholder for AI model if not fully configured for this snippet
-model = None # Replace with actual model initialization if using AI features
+model = GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=os.environ['GEMINI_API_KEY']))
 
 router = APIRouter(
     prefix="/users/{user_id}/insights",
@@ -138,11 +125,11 @@ class InsightOutput(BaseModel):
     )
     implications: str = Field(
         ...,
-        description="Implications of current behavior backed with concrete figures from what was calculated, at max 5 points with 2 sentences each. Must be normalized to user's financial knowledge level. Must be in points."
+        description="Implications of current behavior backed with concrete figures from what was calculated, at max 5 points with 2 sentences each. Must be normalized to user's financial knowledge level. Must be in points. Must include figures calculated from the agent."
     )
     recommended_actions: str = Field(
         ...,
-        description="Recommended actions to take, at max 3 points with 3-4 sentences each. Must be normalized to user's financial knowledge level. Must be in points."
+        description="Recommended actions to take, at max 3 points with 3-4 sentences each. Must be normalized to user's financial knowledge level. Must be in points. Must be implementable and actionable straight away backed with concerete reasons and figures. Must include figures calculated from the agent."
     )
 
 # --- Endpoints ---
@@ -197,69 +184,99 @@ async def generate_financial_report_and_insights_endpoint(
     """
     print(f"Initial AI input for user {user_id}:\n{initial_agent_input_data_str[:500]}...") # Log snippet
 
-    # --- 3. Run Financial Analysis Agent (if configured) ---
-    # This section assumes pydantic_ai and a configured 'model' are available.
-    # If not, these AI agent calls should be conditional or mocked.
-    # For example:
-    # if model and 'Agent' in globals() and 'Tool' in globals(): # Check if pydantic_ai components are available
-    #     financial_agent = Agent( # type: ignore
-    #         model=model,
-    #         system_prompt=financial_analysis_prompt_template,
-    #     )
-    #     financial_agent_response = await _run_ai_agent(
-    #         financial_agent, initial_agent_input_data_str, user_id, "Financial Analysis Agent"
-    #     )
-    #     financial_report_markdown = financial_agent_response.data # Assuming .data holds the markdown
-    # else:
-    #     print("Warning: Financial Analysis AI Agent not run due to missing configuration/dependencies.")
-    #     financial_report_markdown = "Financial report generation skipped due to AI model/dependency unavailability."
-    # For now, let's assume it might be skipped if not configured.
-    financial_report_markdown = "Financial report placeholder - AI agent execution might be skipped if not configured."
-    # Placeholder response if AI part is skipped
-    debt_summarized_model = InsightOutput(financial_goal="N/A", detailed_insight="N/A", implications="N/A", recommended_actions="N/A")
-    savings_summarized_model = InsightOutput(financial_goal="N/A", detailed_insight="N/A", implications="N/A", recommended_actions="N/A")
-    priority_assessment_model = PriorityOutput(user_id=user_id, priority=[], justification=[])
+    financial_agent = Agent(
+        model=model,
+        system_prompt=financial_analysis_prompt_template,
+    )
+    financial_agent_response = await _run_ai_agent(
+        financial_agent, initial_agent_input_data_str, user_id, "Financial Analysis Agent"
+    )
+    
+    report_time = datetime.now().isoformat()
+    financial_report_markdown = financial_agent_response.data
 
+    financial_analysis_for_downstream = {
+        "user_id": user_id,
+        "report_generated_at": report_time, 
+        "financial_report_markdown": financial_report_markdown
+    }
 
-    # --- This is where the original code for AI agents (priority, debt, savings) would go. ---
-    # --- For brevity and focus on the new endpoint, it's condensed here. ---
-    # --- Ensure the AI agents are properly initialized and run if `model` is configured. ---
-    # Example structure (replace with actual agent calls if AI is active):
-    # priority_agent_response = await _run_ai_agent(...)
-    # debt_agent_response = await _run_ai_agent(...)
-    # savings_agent_response = await _run_ai_agent(...)
-    # ... and summarizers ...
-    # debt_summarized_model = debt_summarizer_response.data
-    # savings_summarized_model = savings_summarizer_response.data
-    # priority_assessment_model = priority_agent_response.data
+    agent_input_for_downstream_agents = f"For user:\n{user_profile_str}\nDebt details:\n{debt_details_data}\nTransactions details:\n{expense_details_data}\nIncome details:\n{income_details_data}\nFinancial report:\n{financial_analysis_for_downstream['financial_report_markdown']}"
 
+    priority_agent = Agent(
+        model=model,
+        system_prompt=prioritization_prompt,
+        result_type=PriorityOutput
+    )
+    priority_agent_response = await _run_ai_agent(
+        priority_agent, agent_input_for_downstream_agents, user_id, "Prioritization Agent"
+    )
+    
+    debt_agent = Agent(
+        model=model,
+        system_prompt=debt_prompt,
+        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
+    )
+    debt_agent_response = await _run_ai_agent(
+        debt_agent, agent_input_for_downstream_agents, user_id, "Debt Agent"
+    )
+    print(debt_agent_response.all_messages())
+    debt_raw_results = '\n'.join([str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:]])
 
-    # --- 4. Prepare and Store Insights in Database ---
-    report_time = datetime.now() # Use datetime object
+    debt_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and credit.
+Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
+"""
+    debt_summarizer_agent = Agent(
+        model=model,
+        system_prompt=debt_summarizer_prompt,
+        result_type=InsightOutput
+    )
+    debt_summarizer_input = f"Debt management plan and recommendations:\n{debt_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
+    debt_summarizer_response = await _run_ai_agent(
+        debt_summarizer_agent, debt_summarizer_input, user_id, "Debt Summarizer Agent"
+    )
+    debt_summarized = debt_summarizer_response.data
+
+    savings_agent = Agent(
+        model=model,
+        system_prompt=savings_prompt,
+        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
+    )
+    savings_agent_response = await _run_ai_agent(
+        savings_agent, agent_input_for_downstream_agents, user_id, "Savings Agent"
+    )
+    print(savings_agent_response.all_messages())
+    savings_raw_results = '\n'.join([str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:]])
+
+    savings_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
+Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
+"""
+    savings_summarizer_agent = Agent(
+        model=model,
+        system_prompt=savings_summarizer_prompt,
+        result_type=InsightOutput
+    )
+    savings_summarizer_input = f"Savings plan and recommendations:\n{savings_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
+    savings_summarizer_response = await _run_ai_agent(
+        savings_summarizer_agent, savings_summarizer_input, user_id, "Savings Summarizer Agent"
+    )
+    savings_summarized = savings_summarizer_response.data
 
     insights_payload_for_db = {
-        "debt_insights": debt_summarized_model.model_dump(),
-        "savings_insights": savings_summarized_model.model_dump(),
-        "financial_report_markdown_summary": financial_report_markdown,
-        "priority_assessment": priority_assessment_model.model_dump(),
-        "report_generated_at": report_time.isoformat() # Store as ISO string in JSON
+        "debt_insights": debt_summarized.model_dump(),
+        "savings_insights": savings_summarized.model_dump(),
+        "financial_report_markdown_summary": financial_report_markdown if financial_report_markdown else None,
+        "priority_assessment": priority_agent_response.data.model_dump() if priority_agent_response.data else None,
+        "report_generated_at": report_time
     }
 
     db_data_to_upsert = {
         "user_id": user_id,
-        "insights": insights_payload_for_db,
-        "updated_at": report_time # Supabase client handles datetime object for timestamptz
+        "insights": insights_payload_for_db
     }
 
     try:
         print(f"Upserting insights for user_id: {user_id} to Supabase.")
-        # Using insert and letting the DB handle `updated_at` via DEFAULT NOW()
-        # If you want to explicitly set `updated_at` on conflict, upsert is better.
-        # For simplicity with the given schema (DEFAULT NOW()), an insert is fine if new.
-        # If `insight_id` is SERIAL and you want to update if `user_id` record exists,
-        # you'd need a more complex upsert or a separate update path.
-        # The original schema suggests `users_insights` might have multiple rows per user over time.
-        # If so, each call to this endpoint should create a *new* insight record.
         response = supabase.table("users_insights").insert(
             db_data_to_upsert # insights_id will be auto-generated
         ).execute()
@@ -273,9 +290,9 @@ async def generate_financial_report_and_insights_endpoint(
                 detail=f"Supabase error during insight insert: {response.error.message}"
             )
         if not response.data:
-             print(f"Warning: Supabase insert for user {user_id} returned no data. RLS or other issue?")
-             # This might be okay if RLS prevents returning the inserted row, but the insert succeeded.
-             # Or it could indicate an issue.
+            print(f"Warning: Supabase insert for user {user_id} returned no data. RLS or other issue?")
+            # This might be okay if RLS prevents returning the inserted row, but the insert succeeded.
+            # Or it could indicate an issue.
 
         print(f"Successfully inserted insights for user_id: {user_id}.")
         # If you need the created insight_id, it should be in response.data[0]['insight_id']
@@ -296,14 +313,7 @@ async def generate_financial_report_and_insights_endpoint(
     return {
         "message": "Financial report and insights generated and stored successfully.",
         "user_id": user_id,
-        "stored_insights_summary": { # Provide a summary of what was stored
-            "debt_insight_goal": debt_summarized_model.financial_goal,
-            "savings_insight_goal": savings_summarized_model.financial_goal,
-            "priority_type": priority_assessment_model.priority[0] if priority_assessment_model.priority else "N/A",
-            "report_generated_at": report_time.isoformat()
-        }
-        # Optionally, return the full insights_payload_for_db if needed by the client
-        # "full_insights_payload": insights_payload_for_db
+        "full_insights_payload": insights_payload_for_db
     }
 
 
@@ -325,14 +335,7 @@ async def get_latest_user_insight_endpoint(
     try:
         latest_insight = await services.fetch_latest_user_insight(user_id=user_id, supabase=supabase)
         if not latest_insight:
-            # It's better to return an empty response or a specific message than a 404
-            # if "no insights found" is a valid state, not an error.
-            # However, if the user themselves must exist, fetch_latest_user_insight already checks that.
-            # So, if it returns None here, it means no insights for an existing user.
-            # Returning 200 with null body is standard for "found nothing".
-            # Or, you could return a 404 if "no insights" is considered "not found".
-            # For consistency with "fetch one" patterns, 404 is often used if the specific sub-resource (latest insight) isn't there.
-             raise HTTPException(
+            raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No insights found for user ID {user_id}."
             )
@@ -349,3 +352,4 @@ async def get_latest_user_insight_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected server error occurred: {str(e)}"
         )
+
