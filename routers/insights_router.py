@@ -135,6 +135,101 @@ async def _run_ai_agent(
             detail=f"An error occurred while generating the report with {agent_name}."
         )
 
+async def run_debt_pipeline(model, debt_prompt, agent_input, user_id, financial_knowledge_data):
+    """
+    Runs the debt agent and its summarizer.
+
+    Args:
+        model: The language model to be used.
+        debt_prompt: The system prompt for the debt agent.
+        agent_input: The input string for the debt agent.
+        user_id: The ID of the user.
+        financial_knowledge_data: Data about the user's financial knowledge.
+        execute_python_code_tool: The tool for executing python code.
+
+    Returns:
+        The summarized debt insights.
+    """
+    # Initialize and run the debt agent
+    debt_agent = Agent(
+        model=model,
+        system_prompt=debt_prompt,
+        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
+    )
+    debt_agent_response = await _run_ai_agent(
+        debt_agent, agent_input, user_id, "Debt Agent"
+    )
+    # Process the raw results from the debt agent
+    # Ensure parts and content exist before accessing
+    debt_raw_results = '\n'.join(
+        [str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:] if r.parts and len(r.parts) > 0 and hasattr(r.parts[0], 'content') and r.parts[0].content is not None]
+    )
+
+    # Define the prompt for the debt summarizer agent
+    debt_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and credit.
+Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
+"""
+    # Initialize and run the debt summarizer agent
+    debt_summarizer_agent = Agent(
+        model=model,
+        system_prompt=debt_summarizer_prompt,
+        result_type=InsightOutput  # Assuming InsightOutput is a defined class
+    )
+    debt_summarizer_input = f"Debt management plan and recommendations:\n{debt_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
+    debt_summarizer_response = await _run_ai_agent(
+        debt_summarizer_agent, debt_summarizer_input, user_id, "Debt Summarizer Agent"
+    )
+    debt_summarized = debt_summarizer_response.data
+    return debt_summarized
+
+
+async def run_savings_pipeline(model, savings_prompt, agent_input, user_id, financial_knowledge_data):
+    """
+    Runs the savings agent and its summarizer.
+
+    Args:
+        model: The language model to be used.
+        savings_prompt: The system prompt for the savings agent.
+        agent_input: The input string for the savings agent (which includes debt insights).
+        user_id: The ID of the user.
+        financial_knowledge_data: Data about the user's financial knowledge.
+        execute_python_code_tool: The tool for executing python code.
+
+    Returns:
+        The summarized savings insights.
+    """
+    # Initialize and run the savings agent
+    savings_agent = Agent(
+        model=model,
+        system_prompt=savings_prompt,
+        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
+    )
+    savings_agent_response = await _run_ai_agent(
+        savings_agent, agent_input, user_id, "Savings Agent"
+    )
+    # Process the raw results from the savings agent
+    # Ensure parts and content exist before accessing
+    savings_raw_results = '\n'.join(
+        [str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:] if r.parts and len(r.parts) > 0 and hasattr(r.parts[0], 'content') and r.parts[0].content is not None]
+    )
+
+    # Define the prompt for the savings summarizer agent
+    savings_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
+Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
+"""
+    # Initialize and run the savings summarizer agent
+    savings_summarizer_agent = Agent(
+        model=model,
+        system_prompt=savings_summarizer_prompt,
+        result_type=InsightOutput  # Assuming InsightOutput is a defined class
+    )
+    savings_summarizer_input = f"Savings plan and recommendations:\n{savings_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
+    savings_summarizer_response = await _run_ai_agent(
+        savings_summarizer_agent, savings_summarizer_input, user_id, "Savings Summarizer Agent"
+    )
+    savings_summarized = savings_summarizer_response.data
+    return savings_summarized
+
 # --- Pydantic Models for AI Agent Outputs (if used) ---
 class PriorityOutput(BaseModel):
     user_id: int
@@ -219,6 +314,7 @@ async def generate_financial_report_and_insights_endpoint(
     financial_agent = Agent(
         model=model,
         system_prompt=financial_analysis_prompt_template,
+        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
     )
     financial_agent_response = await _run_ai_agent(
         financial_agent, initial_agent_input_data_str, user_id, "Financial Analysis Agent"
@@ -244,62 +340,97 @@ async def generate_financial_report_and_insights_endpoint(
         priority_agent, agent_input_for_downstream_agents, user_id, "Prioritization Agent"
     )
     
-    debt_agent = Agent(
-        model=model,
-        system_prompt=debt_prompt,
-        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
-    )
-    debt_agent_response = await _run_ai_agent(
-        debt_agent, agent_input_for_downstream_agents, user_id, "Debt Agent"
-    )
-    debt_raw_results = '\n'.join([str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
-
-
-    debt_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and credit.
-Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
-"""
-    debt_summarizer_agent = Agent(
-        model=model,
-        system_prompt=debt_summarizer_prompt,
-        result_type=InsightOutput
-    )
-    debt_summarizer_input = f"Debt management plan and recommendations:\n{debt_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
-    debt_summarizer_response = await _run_ai_agent(
-        debt_summarizer_agent, debt_summarizer_input, user_id, "Debt Summarizer Agent"
-    )
-    debt_summarized = debt_summarizer_response.data
-
-    savings_agent = Agent(
-        model=model,
-        system_prompt=savings_prompt,
-        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
-    )
-    savings_agent_response = await _run_ai_agent(
-        savings_agent, agent_input_for_downstream_agents, user_id, "Savings Agent"
-    )
-    savings_raw_results = '\n'.join([str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
-
-    savings_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
-Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
-"""
-    savings_summarizer_agent = Agent(
-        model=model,
-        system_prompt=savings_summarizer_prompt,
-        result_type=InsightOutput
-    )
-    savings_summarizer_input = f"Savings plan and recommendations:\n{savings_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
-    savings_summarizer_response = await _run_ai_agent(
-        savings_summarizer_agent, savings_summarizer_input, user_id, "Savings Summarizer Agent"
-    )
-    savings_summarized = savings_summarizer_response.data
-
     insights_payload_for_db = {
-        "debt_insights": debt_summarized.model_dump(),
-        "savings_insights": savings_summarized.model_dump(),
+        # "debt_insights": debt_summarized.model_dump(),
+        # "savings_insights": savings_summarized.model_dump(),
         "financial_report_markdown_summary": financial_report_markdown if financial_report_markdown else None,
         "priority_assessment": priority_agent_response.data.model_dump() if priority_agent_response.data else None,
         "report_generated_at": report_time
     }
+    
+    priorities = priority_agent_response.data.priority
+
+    pipeline_map = {
+        "debt": run_debt_pipeline,
+        "savings": run_savings_pipeline
+    }
+
+    agent_input_for_downstream_agents_depended = ""
+
+    for i, priority in enumerate(priorities):
+        summarized_insights = await pipeline_map[priority](
+            model,
+            debt_prompt if priority == "debt" else savings_prompt,
+            agent_input_for_downstream_agents if i == 0 else agent_input_for_downstream_agents_depended,
+            user_id,
+            financial_knowledge_data
+        )
+
+        if i > 0:
+            agent_input_for_downstream_agents_depended = agent_input_for_downstream_agents + f"Your insights and calculation must also take into account the following initial insights:\n{summarized_insights}"
+        insights_payload_for_db[f"{priority}_insights"] = summarized_insights.model_dump()
+
+    print(insights_payload_for_db)
+
+#     debt_agent = Agent(
+#         model=model,
+#         system_prompt=debt_prompt,
+#         tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
+#     )
+#     debt_agent_response = await _run_ai_agent(
+#         debt_agent, agent_input_for_downstream_agents, user_id, "Debt Agent"
+#     )
+#     debt_raw_results = '\n'.join([str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
+
+
+#     debt_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and credit.
+# Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
+# """
+#     debt_summarizer_agent = Agent(
+#         model=model,
+#         system_prompt=debt_summarizer_prompt,
+#         result_type=InsightOutput
+#     )
+#     debt_summarizer_input = f"Debt management plan and recommendations:\n{debt_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
+#     debt_summarizer_response = await _run_ai_agent(
+#         debt_summarizer_agent, debt_summarizer_input, user_id, "Debt Summarizer Agent"
+#     )
+#     debt_summarized = debt_summarizer_response.data
+
+#     savings_agent = Agent(
+#         model=model,
+#         system_prompt=savings_prompt,
+#         tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
+#     )
+
+#     agent_input_for_downstream_agents_debt_depended = agent_input_for_downstream_agents + f"\nDebt insights:\n{debt_summarized}"
+
+#     savings_agent_response = await _run_ai_agent(
+#         savings_agent, agent_input_for_downstream_agents_debt_depended, user_id, "Savings Agent"
+#     )
+#     savings_raw_results = '\n'.join([str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:] if r.parts and r.parts[0].content])
+
+#     savings_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
+# Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
+# """
+#     savings_summarizer_agent = Agent(
+#         model=model,
+#         system_prompt=savings_summarizer_prompt,
+#         result_type=InsightOutput
+#     )
+#     savings_summarizer_input = f"Savings plan and recommendations:\n{savings_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
+#     savings_summarizer_response = await _run_ai_agent(
+#         savings_summarizer_agent, savings_summarizer_input, user_id, "Savings Summarizer Agent"
+#     )
+#     savings_summarized = savings_summarizer_response.data
+
+    # insights_payload_for_db = {
+    #     "debt_insights": debt_summarized.model_dump(),
+    #     "savings_insights": savings_summarized.model_dump(),
+    #     "financial_report_markdown_summary": financial_report_markdown if financial_report_markdown else None,
+    #     "priority_assessment": priority_agent_response.data.model_dump() if priority_agent_response.data else None,
+    #     "report_generated_at": report_time
+    # }
 
     db_data_to_upsert = {
         "user_id": user_id,
