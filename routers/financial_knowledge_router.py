@@ -1,10 +1,9 @@
-# routers/financial_knowledge_router.py
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Path
 
-import models # Import Pydantic models
-import services # Import service functions
-from database import get_supabase_client # Import Supabase client dependency
+import models
+import services
+from database import get_supabase_client
 
 router = APIRouter(
     tags=["Financial Knowledge Definitions"],
@@ -22,7 +21,6 @@ async def create_financial_knowledge_definition_route(
 ):
     """Endpoint to create a new financial knowledge definition."""
     try:
-        # The service function will handle potential duplicates if (category, level) must be unique
         created_definition = await services.create_financial_knowledge_definition(definition_in=definition_in, supabase=supabase)
         return created_definition
     except HTTPException as http_exc:
@@ -38,7 +36,7 @@ async def create_financial_knowledge_definition_route(
             response_model=List[models.FinancialKnowledgeDefinition],
             summary="Get all financial knowledge definitions",
             description="Retrieves a list of all defined financial knowledge categories, levels, and their descriptions.")
-async def list_financial_knowledge_definitions_route( # Renamed for clarity
+async def list_financial_knowledge_definitions_route(
     supabase: Any = Depends(get_supabase_client)
 ):
     """Endpoint to retrieve all financial knowledge definitions."""
@@ -58,7 +56,7 @@ async def list_financial_knowledge_definitions_route( # Renamed for clarity
             response_model=models.FinancialKnowledgeDefinition,
             summary="Get a specific financial knowledge definition by ID",
             description="Retrieves a single financial knowledge definition by its unique ID.")
-async def get_financial_knowledge_definition_route( # Renamed for clarity
+async def get_financial_knowledge_definition_route(
     definition_id: int = Path(..., title="The ID of the financial knowledge definition", ge=1),
     supabase: Any = Depends(get_supabase_client)
 ):
@@ -86,7 +84,7 @@ async def get_financial_knowledge_definition_route( # Renamed for clarity
             description="Updates an existing financial knowledge definition by its ID. Only provided fields are updated.")
 async def update_financial_knowledge_definition_route(
     definition_id: int = Path(..., title="The ID of the definition to update", ge=1),
-    definition_update: models.FinancialKnowledgeDefinitionUpdate = ..., # Ellipsis means body is required
+    definition_update: models.FinancialKnowledgeDefinitionUpdate = ...,
     supabase: Any = Depends(get_supabase_client)
 ):
     """Endpoint to update a financial knowledge definition."""
@@ -128,9 +126,6 @@ async def delete_financial_knowledge_definition_route(
                 detail=f"Financial knowledge definition with ID {definition_id} not found for deletion."
             )
         return {"message": f"Financial knowledge definition with ID {definition_id} deleted successfully."}
-        # If using 204 No Content, just return None or nothing.
-        # from fastapi import Response
-        # return Response(status_code=status.HTTP_204_NO_CONTENT)
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
@@ -140,13 +135,12 @@ async def delete_financial_knowledge_definition_route(
             detail=f"An unexpected error occurred: {str(e)}"
         )
 
-# The map endpoint can remain if it's useful for internal debugging or specific use cases.
 # @router.get("/map",
 #             response_model=Dict[str, Dict[int, str]],
 #             summary="Get financial knowledge definitions as a map",
-#             include_in_schema=False) # Hides from OpenAPI docs
+#             include_in_schema=False) 
 # async def get_financial_knowledge_map(
-#     supabase: Any = Depends(get_supabase_client) # Changed Client to Any
+#     supabase: Any = Depends(get_supabase_client) 
 # ):
 #     try:
 #         definitions_map = await services.get_all_financial_knowledge_definitions_map(supabase=supabase)

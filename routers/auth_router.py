@@ -1,15 +1,10 @@
-# ================================================
-# FILE: routers/auth_router.py
-# ================================================
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status, Body
-from fastapi.security import OAuth2PasswordRequestForm # For standard login form
+from fastapi.security import OAuth2PasswordRequestForm
 
-# Import models, services, and database utility
 import models 
 import services 
 from database import get_supabase_client 
-# Import config for JWT settings if/when needed for full auth
 # import config 
 
 router = APIRouter(
@@ -62,9 +57,8 @@ async def simple_login_route(
     Verifies credentials against the stored hashed password.
     Updates `last_login` timestamp on successful authentication.
     """
-    print(f"Login attempt for email: {form_data.email}") # Logging attempt
+    print(f"Login attempt for email: {form_data.email}")
     
-    # Authenticate the user using the service function
     authenticated_user_login_details = await services.simple_authenticate_user(
         email=form_data.email, 
         password=form_data.password, 
@@ -72,34 +66,32 @@ async def simple_login_route(
     )
     
     if not authenticated_user_login_details:
-        print(f"Login failed for email: {form_data.email}") # Logging failure
+        print(f"Login failed for email: {form_data.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"}, # Standard header, though not using Bearer tokens here
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
-    print(f"Login successful for email: {form_data.email}, user_id: {authenticated_user_login_details.user_id}") # Logging success
+    print(f"Login successful for email: {form_data.email}, user_id: {authenticated_user_login_details.user_id}")
     
-    # Return a simple success response
     return models.UserLoginSuccessResponse(
         user_id=authenticated_user_login_details.user_id,
         email=authenticated_user_login_details.email,
         message=f"Login successful for user_id {authenticated_user_login_details.user_id}."
     )
 
-# --- Placeholder for JWT-based login (can be implemented later) ---
 # @router.post("/token", response_model=models.Token, summary="User Login for Access Token (JWT)")
 # async def login_for_access_token(
-#     form_data: OAuth2PasswordRequestForm = Depends(), # Standard way to get username/password from form data
+#     form_data: OAuth2PasswordRequestForm = Depends(), 
 #     supabase: Any = Depends(get_supabase_client)
 # ):
 #     """
 #     Standard OAuth2 password flow for obtaining a JWT access token.
 #     'username' field from the form is treated as the email.
 #     """
-#     user = await services.authenticate_user( # This would be a more robust auth function
-#         email=form_data.username, # OAuth2PasswordRequestForm uses 'username'
+#     user = await services.authenticate_user( 
+#         email=form_data.username, 
 #         password=form_data.password,
 #         supabase=supabase
 #     )
@@ -109,15 +101,12 @@ async def simple_login_route(
 #             detail="Incorrect email or password",
 #             headers={"WWW-Authenticate": "Bearer"},
 #         )
-#     # Create JWT token
 #     access_token_expires = timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES)
 #     access_token_payload = {
-#         "sub": user.email, # 'sub' (subject) is standard claim for user identifier
-#         "user_id": user.user_id, # Custom claim
-#         # Add other claims like roles, permissions if needed
+#         "sub": user.email, 
+#         "user_id": user.user_id, 
 #     }
 #     access_token = services.create_access_token(
 #         data=access_token_payload, expires_delta=access_token_expires
 #     )
 #     return {"access_token": access_token, "token_type": "bearer"}
-

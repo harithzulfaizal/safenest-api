@@ -1,43 +1,30 @@
-# main.py
 import uvicorn
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware # Import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 
-# Import configurations and application metadata
 from config import APP_TITLE, APP_DESCRIPTION, APP_VERSION
-
-# Import router modules
 from routers import users_router, financial_knowledge_router, insights_router, auth_router
-
-# Import database utility
 from database import init_supabase_client
 
-# Create the FastAPI application instance
 app = FastAPI(
     title=APP_TITLE,
     description=APP_DESCRIPTION,
     version=APP_VERSION
 )
 
-# --- CORS Middleware Configuration ---
-# List of origins that are allowed to make requests.
-# For development, you might allow your local React app's origin.
-# For production, you'd list your actual frontend domain(s).
-origins = [
-    # "http://localhost:3000",
-    "*"  # Your React frontend
-    # Add other origins if needed, e.g., your deployed frontend URL
-]
+# origins = [
+#     # "http://localhost:3000",
+#     "*" 
+#     # Add other origins if needed, e.g., your deployed frontend URL
+# ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows specific origins
-    allow_credentials=True, # Allows cookies to be included in requests
-    allow_methods=["*"],    # Allows all methods (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],    # Allows all headers
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-# --- End CORS Middleware Configuration ---
-
 
 @app.on_event("startup")
 async def startup_event():

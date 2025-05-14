@@ -1,15 +1,12 @@
-# database.py
-from typing import Optional, Any # Added Any
-from supabase import create_client, Client # Client is still needed for the actual object creation
+from typing import Optional, Any
+from supabase import create_client, Client
 from fastapi import HTTPException, status
 
-# Direct import
-import config # Import from config.py
+import config
 
-# Global variable to hold the Supabase client instance.
-supabase_client: Optional[Client] = None # The actual client is still of type Client
+supabase_client: Optional[Client] = None
 
-def get_supabase_client() -> Any: # Changed return type from Client to Any
+def get_supabase_client() -> Any:
     """
     Dependency to get the Supabase client.
     Initializes the client if it hasn't been already.
@@ -25,15 +22,14 @@ def get_supabase_client() -> Any: # Changed return type from Client to Any
     """
     global supabase_client
     if supabase_client is None:
-        if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_KEY: # Use imported config
+        if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_KEY:
             print("Error: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in config.py or environment variables.")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Supabase configuration missing. Server is not properly configured."
             )
         try:
-            # The actual object created is still a Supabase Client
-            supabase_client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY) # Use imported config
+            supabase_client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
             print("Successfully connected to Supabase!")
         except Exception as e:
             print(f"Error connecting to Supabase: {e}")

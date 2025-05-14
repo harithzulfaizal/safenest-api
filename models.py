@@ -1,14 +1,11 @@
 # ================================================
 # FILE: models.py
 # ================================================
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from decimal import Decimal
-from datetime import datetime, timedelta # Added timedelta
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field, EmailStr
 
-# --- Pydantic Models for Data Structuring ---
-
-# User Profile Models
 class UserProfileBase(BaseModel):
     """Base model for user profile attributes, used for creation or partial updates if needed."""
     age: Optional[int] = Field(None, description="User's age")
@@ -23,7 +20,7 @@ class UserProfileCreate(UserProfileBase):
 
 class UserProfileUpdate(UserProfileBase):
     """Model for updating an existing user profile. All fields are optional."""
-    pass # Inherits all optional fields from UserProfileBase
+    pass
 
 class UserProfile(UserProfileBase):
     """
@@ -34,10 +31,8 @@ class UserProfile(UserProfileBase):
 
     class Config:
         orm_mode = True
-        # For Pydantic V2:
         # model_config = {"from_attributes": True}
 
-# Financial Knowledge Definition Models
 class FinancialKnowledgeDefinitionBase(BaseModel):
     """Base model for financial knowledge definition attributes."""
     category: str = Field(..., description="The category of financial knowledge (e.g., Budgeting, Investing)", example="Investing")
@@ -62,9 +57,8 @@ class FinancialKnowledgeDefinition(FinancialKnowledgeDefinitionBase):
 
     class Config:
         orm_mode = True
-        # model_config = {"from_attributes": True} # Pydantic V2
+        # model_config = {"from_attributes": True}
 
-# User Financial Knowledge Models
 class UserFinancialKnowledgeCreate(BaseModel):
     """Model for adding a financial knowledge category and level for a user."""
     category: str = Field(..., description="The category of financial knowledge", example="Budgeting")
@@ -85,9 +79,8 @@ class UserFinancialKnowledgeDetail(BaseModel):
 
     class Config:
         orm_mode = True
-        # model_config = {"from_attributes": True} # Pydantic V2
+        # model_config = {"from_attributes": True}
 
-# Income Models
 class IncomeDetailBase(BaseModel):
     """Base model for income details."""
     income_source: Optional[str] = Field(None, description="Source of the income (e.g., Salary, Freelance)", example="Salary")
@@ -111,7 +104,6 @@ class IncomeDetail(IncomeDetailBase):
         orm_mode = True
         # model_config = {"from_attributes": True}
 
-# Debt Models
 class DebtDetailBase(BaseModel):
     """Base model for debt details."""
     account_name: Optional[str] = Field(None, description="Name of the debt account (e.g., Credit Card, Student Loan)", example="Visa Credit Card")
@@ -136,7 +128,6 @@ class DebtDetail(DebtDetailBase):
         orm_mode = True
         # model_config = {"from_attributes": True}
 
-# Expense Models
 class ExpenseDetailBase(BaseModel):
     """Base model for expense details."""
     expense_category: Optional[str] = Field(None, description="Category of the expense (e.g., Housing, Food, Transport)", example="Groceries")
@@ -162,7 +153,6 @@ class ExpenseDetail(ExpenseDetailBase):
         orm_mode = True
         # model_config = {"from_attributes": True}
 
-# Comprehensive User Details
 class ComprehensiveUserDetails(BaseModel):
     """
     A comprehensive model that aggregates all financial details for a user.
@@ -178,7 +168,6 @@ class ComprehensiveUserDetails(BaseModel):
         orm_mode = True
         # model_config = {"from_attributes": True}
 
-# --- User Login Models (Registration) ---
 class UserLoginCreate(BaseModel):
     """Model for creating new login credentials for a user during registration."""
     user_id: int = Field(..., description="The ID of the user to associate these login credentials with", example=1)
@@ -198,7 +187,6 @@ class UserLoginResponse(BaseModel):
         orm_mode = True
         # model_config = {"from_attributes": True}
 
-# --- User Login Models (Authentication) ---
 class UserLoginRequest(BaseModel):
     """Model for user login request (authentication)."""
     email: EmailStr = Field(..., description="User's email address for login", example="user@example.com")
@@ -211,9 +199,8 @@ class UserLoginSuccessResponse(BaseModel):
     message: str = Field(default="Login successful", description="Login status message")
 
     class Config:
-        orm_mode = True # Important if you are returning ORM objects directly
+        orm_mode = True
 
-# --- Token Models (for JWT - can be used later if full auth is implemented) ---
 class Token(BaseModel):
     """Model for the JWT access token."""
     access_token: str
@@ -222,9 +209,8 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     """Data/payload contained within a JWT."""
     email: Optional[EmailStr] = None
-    user_id: Optional[int] = None # Added user_id to token data
+    user_id: Optional[int] = None
 
-# --- User Insights Models ---
 class UserInsightBase(BaseModel):
     """Base model for user insights."""
     user_id: int = Field(..., description="Foreign key referencing the user.")
@@ -237,15 +223,37 @@ class UserInsightRecord(UserInsightBase):
 
     class Config:
         orm_mode = True
-        # model_config = {"from_attributes": True} # Pydantic V2
+        # model_config = {"from_attributes": True}
 
 class UserInsightCreate(BaseModel):
     """Model for creating a new user insight."""
     user_id: int
     insights: Dict[str, Any]
-    # updated_at is handled by the database default
 
 class UserInsightResponse(UserInsightRecord):
     """Response model for user insights, includes all fields."""
     pass
 
+# --- AI Agent Output Models (from insights_router.py) ---
+class PriorityOutput(BaseModel):
+    user_id: int
+    priority: List[Literal['debt', 'savings']] # type: ignore
+    justification: List[str]
+
+class InsightOutput(BaseModel):
+    financial_goal: str = Field(
+        ...,
+        description="Insight title of the content generated by the agent based on the user's goal(s)"
+    )
+    detailed_insight: str = Field(
+        ...,
+        description="Detailed insight generated by the agent based on the user's financial knowledge level, at max 6 sentences"
+    )
+    implications: str = Field(
+        ...,
+        description="Implications of current behavior backed with concrete figures from what was calculated, at max 5 points with 2 sentences each. Must be normalized to user's financial knowledge level. Must be in points. Must include figures calculated from the agent."
+    )
+    recommended_actions: str = Field(
+        ...,
+        description="Recommended actions to take, at max 3 points with 3-4 sentences each. Must be normalized to user's financial knowledge level. Must be in points. Must be implementable and actionable straight away backed with concerete reasons and figures. Must include figures calculated from the agent."
+    )

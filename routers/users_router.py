@@ -1,6 +1,5 @@
-# routers/users_router.py
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Path, status, Response, Body # Added Body
+from fastapi import APIRouter, Depends, HTTPException, Path, status, Response, Body
 
 import models
 import services
@@ -11,7 +10,6 @@ router = APIRouter(
     tags=["User Details"]
 )
 
-# --- User Profile CRUD ---
 @router.post("",
              response_model=models.UserProfile,
              status_code=status.HTTP_201_CREATED,
@@ -54,7 +52,7 @@ async def get_user_profile_route(
             description="Updates an existing user's profile information. Only provided fields are changed.")
 async def update_user_profile_route(
     user_id: int = Path(..., title="The ID of the user to update", ge=1),
-    user_profile_update: models.UserProfileUpdate = Body(...), # CORRECTED: Added Body(...)
+    user_profile_update: models.UserProfileUpdate = Body(...),
     supabase: Any = Depends(get_supabase_client)
 ):
     updated_profile = await services.update_user_profile(user_id=user_id, user_profile_update=user_profile_update, supabase=supabase)
@@ -81,7 +79,6 @@ async def delete_user_profile_route(
         )
     return {"message": f"User profile with ID {user_id} deleted successfully."}
 
-# --- User Financial Knowledge CRUD ---
 @router.post("/{user_id}/financial_knowledge",
              response_model=models.UserFinancialKnowledgeDetail,
              status_code=status.HTTP_201_CREATED,
@@ -89,7 +86,7 @@ async def delete_user_profile_route(
              description="Adds a new financial knowledge entry (category and level) for a user or updates the level if the category already exists for that user. (user_id, category) is treated as a key.")
 async def add_or_update_user_financial_knowledge_route(
     user_id: int = Path(..., title="The ID of the user", ge=1),
-    knowledge_in: models.UserFinancialKnowledgeCreate = Body(...), # Explicitly marking as body
+    knowledge_in: models.UserFinancialKnowledgeCreate = Body(...),
     supabase: Any = Depends(get_supabase_client),
     definitions_map: Dict[str, Dict[int, str]] = Depends(services.get_definitions_map_with_supabase_dependency)
 ):
@@ -123,7 +120,7 @@ async def get_user_financial_knowledge_route(
 async def update_user_financial_knowledge_level_route(
     user_id: int = Path(..., title="The ID of the user", ge=1),
     category: str = Path(..., title="The financial knowledge category to update"),
-    knowledge_update: models.UserFinancialKnowledgeUpdate = Body(...), # CORRECTED: Added Body(...)
+    knowledge_update: models.UserFinancialKnowledgeUpdate = Body(...),
     supabase: Any = Depends(get_supabase_client),
     definitions_map: Dict[str, Dict[int, str]] = Depends(services.get_definitions_map_with_supabase_dependency)
 ):
@@ -156,14 +153,13 @@ async def remove_user_financial_knowledge_route(
     return {"message": f"Financial knowledge category '{category}' removed for user ID {user_id}."}
 
 
-# --- User Income CRUD ---
 @router.post("/{user_id}/income",
              response_model=models.IncomeDetail,
              status_code=status.HTTP_201_CREATED,
              summary="Add an income source for a user")
 async def create_income_detail_route(
     user_id: int = Path(..., title="User ID", ge=1),
-    income_in: models.IncomeDetailCreate = Body(...), # Explicitly marking as body
+    income_in: models.IncomeDetailCreate = Body(...),
     supabase: Any = Depends(get_supabase_client)
 ):
     return await services.create_income_detail(user_id=user_id, income_in=income_in, supabase=supabase)
@@ -198,7 +194,7 @@ async def get_income_detail_route(
 async def update_income_detail_route(
     user_id: int = Path(..., title="User ID", ge=1),
     income_id: int = Path(..., title="Income Record ID", ge=1),
-    income_update: models.IncomeDetailUpdate = Body(...), # CORRECTED: Added Body(...)
+    income_update: models.IncomeDetailUpdate = Body(...),
     supabase: Any = Depends(get_supabase_client)
 ):
     updated_income = await services.update_income_detail(user_id=user_id, income_id=income_id, income_update=income_update, supabase=supabase)
@@ -220,14 +216,13 @@ async def delete_income_detail_route(
     return {"message": f"Income record ID {income_id} for user {user_id} deleted."}
 
 
-# --- User Debts CRUD (similar to Income) ---
 @router.post("/{user_id}/debts",
              response_model=models.DebtDetail,
              status_code=status.HTTP_201_CREATED,
              summary="Add a debt obligation for a user")
 async def create_debt_detail_route(
     user_id: int = Path(..., title="User ID", ge=1),
-    debt_in: models.DebtDetailCreate = Body(...), # Explicitly marking as body
+    debt_in: models.DebtDetailCreate = Body(...),
     supabase: Any = Depends(get_supabase_client)
 ):
     return await services.create_debt_detail(user_id=user_id, debt_in=debt_in, supabase=supabase)
@@ -262,7 +257,7 @@ async def get_debt_detail_route(
 async def update_debt_detail_route(
     user_id: int = Path(..., title="User ID", ge=1),
     debt_id: int = Path(..., title="Debt Record ID", ge=1),
-    debt_update: models.DebtDetailUpdate = Body(...), # CORRECTED: Added Body(...)
+    debt_update: models.DebtDetailUpdate = Body(...),
     supabase: Any = Depends(get_supabase_client)
 ):
     updated_debt = await services.update_debt_detail(user_id=user_id, debt_id=debt_id, debt_update=debt_update, supabase=supabase)
@@ -284,14 +279,13 @@ async def delete_debt_detail_route(
     return {"message": f"Debt record ID {debt_id} for user {user_id} deleted."}
 
 
-# --- User Expenses CRUD (similar to Income) ---
 @router.post("/{user_id}/expenses",
              response_model=models.ExpenseDetail,
              status_code=status.HTTP_201_CREATED,
              summary="Add an expense record for a user")
 async def create_expense_detail_route(
     user_id: int = Path(..., title="User ID", ge=1),
-    expense_in: models.ExpenseDetailCreate = Body(...), # Explicitly marking as body
+    expense_in: models.ExpenseDetailCreate = Body(...),
     supabase: Any = Depends(get_supabase_client)
 ):
     return await services.create_expense_detail(user_id=user_id, expense_in=expense_in, supabase=supabase)
@@ -326,7 +320,7 @@ async def get_expense_detail_route(
 async def update_expense_detail_route(
     user_id: int = Path(..., title="User ID", ge=1),
     expense_id: int = Path(..., title="Expense Record ID", ge=1),
-    expense_update: models.ExpenseDetailUpdate = Body(...), # CORRECTED: Added Body(...)
+    expense_update: models.ExpenseDetailUpdate = Body(...),
     supabase: Any = Depends(get_supabase_client)
 ):
     updated_expense = await services.update_expense_detail(user_id=user_id, expense_id=expense_id, expense_update=expense_update, supabase=supabase)
@@ -348,7 +342,6 @@ async def delete_expense_detail_route(
     return {"message": f"Expense record ID {expense_id} for user {user_id} deleted."}
 
 
-# --- Comprehensive User Details Endpoint (No changes needed for this request) ---
 @router.get("/{user_id}/comprehensive_details",
             response_model=models.ComprehensiveUserDetails,
             tags=["User Details - Comprehensive"], 
