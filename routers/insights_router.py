@@ -18,7 +18,7 @@ import models as app_models
 from models import PriorityOutput, InsightOutput
 from database import get_supabase_client
 
-from core.prompts import financial_analysis_prompt_template, prioritization_prompt, debt_prompt, savings_prompt
+from core.prompts import financial_analysis_prompt_template, prioritization_prompt, debt_prompt, savings_prompt, transaction_summarization_prompt
 from core.tools import execute_python_code
 
 try:
@@ -109,10 +109,11 @@ async def _run_ai_agent(
     agent: Any, 
     input_str: str,
     user_id: int,
-    agent_name: str
+    agent_name: str,
+    max_retries: int = 3
 ) -> Any:
     """
-    Helper function to run a pydantic-ai Agent asynchronously.
+    Helper function to run a pydantic-ai Agent asynchronously with retry logic (no delay).
     Handles potential errors during agent execution.
     """
     if agent is None:
@@ -129,17 +130,38 @@ async def _run_ai_agent(
             detail=f"AI Agent '{agent_name}' is not configured correctly for async operation."
         )
 
-    try:
-        print(f"Running {agent_name} for user_id: {user_id} asynchronously...")
-        agent_response = await agent.run(input_str) 
-        print(f"{agent_name} processing completed for user_id: {user_id}.")
-        return agent_response
-    except Exception as e:
-        print(f"Error running {agent_name} for user {user_id}: {str(e)}")
-        traceback.print_exc() 
+    
+    current_retry = 0
+    last_exception = None
+
+    while current_retry < max_retries:
+        try:
+            print(f"Running {agent_name} for user_id: {user_id} asynchronously... (Attempt {current_retry + 1}/{max_retries})")
+            agent_response = await agent.run(input_str) 
+            print(f"{agent_name} processing completed for user_id: {user_id}.")
+            return agent_response
+        except Exception as e:
+            last_exception = e
+            print(f"Error running {agent_name} for user {user_id} (Attempt {current_retry + 1}/{max_retries}): {str(e)}")
+            traceback.print_exc() 
+            current_retry += 1
+            if current_retry < max_retries:
+                print(f"Retrying immediately...")
+                # No delay: await asyncio.sleep(delay)
+                # No exponential backoff: delay *= 2
+            else:
+                print(f"All retries failed for {agent_name} for user {user_id}.")
+    
+    # If all retries failed, raise an HTTPException with the last encountered error
+    if last_exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating the report with {agent_name}."
+            detail=f"An error occurred while generating the report with {agent_name} after {max_retries} attempts: {str(last_exception)}"
+        )
+    else: # Should not happen if loop was entered, but as a safeguard
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unknown error occurred with {agent_name} after {max_retries} attempts."
         )
 
 async def run_debt_pipeline(model, debt_prompt, agent_input, user_id, financial_knowledge_data):
@@ -276,17 +298,54 @@ async def _run_initial_financial_analysis_agent(
         "financial_report_markdown": financial_report_markdown
     }
 
+async def _run_transaction_summarizer_agent(
+    model: Any,
+    user_id: int,
+    expense_details_data: List[Dict[str, Any]]
+) -> str:
+    """Runs the transaction summarization agent."""
+    transaction_agent_input_str = f"""
+    Expense Details (Transactions):
+    {str(expense_details_data)}
+    """
+    print(f"Transaction summarizer AI input for user {user_id}:\n{transaction_agent_input_str[:500]}...")
+
+    transaction_summarizer_agent = Agent(
+        model=model,
+        system_prompt=transaction_summarization_prompt,
+        tools=[Tool(execute_python_code, name="execute_python_code", description="Python environment to perform complex calculations and data analysis", takes_ctx=False)],
+    )
+    # Assuming the agent directly returns a string summary
+    transaction_summarizer_response = await _run_ai_agent(
+        transaction_summarizer_agent, transaction_agent_input_str, user_id, "Transaction Summarizer Agent"
+    )
+    
+    # Ensure the response is a string. If it's a Pydantic model, extract the relevant field.
+    # This depends on how your Agent is configured to return data.
+    # For now, assuming it's `transaction_summarizer_response.data` if it's a model, or just the response itself.
+    if hasattr(transaction_summarizer_response, 'data'):
+        summarized_transactions_str = transaction_summarizer_response.data 
+    elif isinstance(transaction_summarizer_response, str):
+        summarized_transactions_str = transaction_summarizer_response
+    else:
+        # Fallback or error handling if the response format is unexpected
+        print(f"Warning: Unexpected response type from Transaction Summarizer Agent for user {user_id}. Type: {type(transaction_summarizer_response)}")
+        summarized_transactions_str = str(transaction_summarizer_response) # Convert to string as a fallback
+
+    print(f"Transaction summary for user {user_id}:\n{summarized_transactions_str[:500]}...")
+    return summarized_transactions_str
+
 async def _run_prioritization_agent(
     model: Any,
     user_id: int,
     user_profile_str: str,
     debt_details_data: List[Dict[str, Any]],
-    expense_details_data: List[Dict[str, Any]],
+    summarized_transactions_str: str, # Changed from expense_details_data
     income_details_data: List[Dict[str, Any]],
     financial_report_markdown: str
 ) -> PriorityOutput:
     """Runs the prioritization agent."""
-    agent_input_for_downstream_agents = f"For user:\n{user_profile_str}\nDebt details:\n{debt_details_data}\nTransactions details:\n{expense_details_data}\nIncome details:\n{income_details_data}\nFinancial report:\n{financial_report_markdown}"
+    agent_input_for_downstream_agents = f"For user:\n{user_profile_str}\nDebt details:\n{debt_details_data}\nSummarized Transactions details:\n{summarized_transactions_str}\nIncome details:\n{income_details_data}\nFinancial report:\n{financial_report_markdown}"
 
     priority_agent = Agent(
         model=model,
@@ -304,7 +363,7 @@ async def _run_prioritized_insight_pipelines(
     priorities: List[str],
     user_profile_str: str,
     debt_details_data: List[Dict[str, Any]],
-    expense_details_data: List[Dict[str, Any]],
+    summarized_transactions_str: str, # Changed from expense_details_data
     income_details_data: List[Dict[str, Any]],
     financial_report_markdown: str,
     financial_knowledge_data: List[Dict[str, Any]]
@@ -317,7 +376,7 @@ async def _run_prioritized_insight_pipelines(
         "savings": run_savings_pipeline
     }
 
-    base_agent_input = f"For user:\n{user_profile_str}\nDebt details:\n{debt_details_data}\nTransactions details:\n{expense_details_data}\nIncome details:\n{income_details_data}\nFinancial report:\n{financial_report_markdown}"
+    base_agent_input = f"For user:\n{user_profile_str}\nDebt details:\n{debt_details_data}\nSummarized Transactions details:\n{summarized_transactions_str}\nIncome details:\n{income_details_data}\nFinancial report:\n{financial_report_markdown}"
     
     current_agent_input = base_agent_input
     
@@ -408,17 +467,48 @@ async def generate_financial_report_and_insights_endpoint(
     financial_knowledge_data = fetched_data["financial_knowledge_data"] 
     income_details_data = fetched_data["income_details_data"]
     debt_details_data = fetched_data["debt_details_data"]
-    expense_details_data = fetched_data["expense_details_data"]
+    expense_details_data = fetched_data["expense_details_data"] # Still needed for summarizer
 
-    financial_analysis_result = await _run_initial_financial_analysis_agent(
+    # Run financial analysis and transaction summarization concurrently
+    initial_analysis_task = _run_initial_financial_analysis_agent(
         model=model,
         user_id=user_id,
         user_profile_str=user_profile_str,
         financial_knowledge_str=str(financial_knowledge_data),
         income_str=str(income_details_data),
         debt_str=str(debt_details_data),
-        expense_str=str(expense_details_data)
+        expense_str=str(expense_details_data) # Main report still gets full details
     )
+    
+    transaction_summary_task = _run_transaction_summarizer_agent(
+        model=model,
+        user_id=user_id,
+        expense_details_data=expense_details_data
+    )
+
+    results = await asyncio.gather(initial_analysis_task, transaction_summary_task, return_exceptions=True)
+
+    financial_analysis_result = None
+    summarized_transactions_str = None
+
+    if isinstance(results[0], Exception):
+        print(f"Error in financial analysis agent: {results[0]}")
+        # Decide how to handle this error, e.g., raise HTTPException or proceed without report
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error generating financial report: {results[0]}")
+    else:
+        financial_analysis_result = results[0]
+
+    if isinstance(results[1], Exception):
+        print(f"Error in transaction summarizer agent: {results[1]}")
+        # Decide how to handle this error, e.g., raise HTTPException or proceed with raw data if necessary
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error summarizing transactions: {results[1]}")
+    else:
+        summarized_transactions_str = results[1]
+        
+    if not financial_analysis_result or not summarized_transactions_str:
+        # This case should ideally be caught by the exception checks above
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get critical AI results.")
+
     financial_report_markdown = financial_analysis_result["financial_report_markdown"]
     report_time = financial_analysis_result["report_generated_at"]
 
@@ -427,13 +517,14 @@ async def generate_financial_report_and_insights_endpoint(
         user_id=user_id,
         user_profile_str=user_profile_str,
         debt_details_data=debt_details_data,
-        expense_details_data=expense_details_data,
+        summarized_transactions_str=summarized_transactions_str, # Pass summarized string
         income_details_data=income_details_data,
         financial_report_markdown=financial_report_markdown
     )
     
     insights_payload_for_db = {
         "financial_report_markdown_summary": financial_report_markdown,
+        "transaction_summary_markdown": summarized_transactions_str, # Add summary to DB
         "priority_assessment": priority_assessment_data.model_dump(),
         "report_generated_at": report_time
     }
@@ -446,7 +537,7 @@ async def generate_financial_report_and_insights_endpoint(
             priorities=priorities,
             user_profile_str=user_profile_str,
             debt_details_data=debt_details_data,
-            expense_details_data=expense_details_data,
+            summarized_transactions_str=summarized_transactions_str, # Pass summarized string
             income_details_data=income_details_data,
             financial_report_markdown=financial_report_markdown,
             financial_knowledge_data=financial_knowledge_data
