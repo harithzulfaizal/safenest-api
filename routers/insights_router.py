@@ -325,7 +325,7 @@ async def _run_prioritized_insight_pipelines(
 
     for i, priority in enumerate(priorities):
         if i > 0 and processed_insights_for_dependency:
-            previous_insights_summary = "\n\nPreviously derived insights to consider:\n" + "\n".join(
+            previous_insights_summary = f"\n\nIn your calculation for the insights and recommended actions for {priority}, the figures must take into account the recommendations from the previously derived insights,\n" + "\n".join(
                 [f"- {insight_type.capitalize()} Insight: {str(insight_data)}" for insight_type, insight_data in processed_insights_for_dependency]
             )
             current_agent_input = base_agent_input + previous_insights_summary

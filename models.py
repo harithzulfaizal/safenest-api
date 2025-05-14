@@ -9,10 +9,12 @@ from pydantic import BaseModel, Field, EmailStr
 class UserProfileBase(BaseModel):
     """Base model for user profile attributes, used for creation or partial updates if needed."""
     age: Optional[int] = Field(None, description="User's age")
+    gender: Optional[str] = Field(None, description="User's gender")
+    savings: Optional[Decimal] = Field(None, description="User's total savings amount")
     num_children: Optional[int] = Field(None, description="Number of children the user has")
     marital_status: Optional[str] = Field(None, description="User's marital status (e.g., Single, Married)")
     retirement_status: Optional[str] = Field(None, description="User's retirement status (e.g., Employed, Retired)")
-    goals: Optional[Dict[str, Any]] = Field(None, description="User's financial or life goals, stored as a JSON object")
+    goals: Optional[Dict[str, Any]] = Field(None, description="User's financial or life goals, stored as a JSON object based on order of importance")
 
 class UserProfileCreate(UserProfileBase):
     """Model for creating a new user profile. user_id is typically assigned by the database or an external system."""
@@ -134,6 +136,7 @@ class ExpenseDetailBase(BaseModel):
     monthly_amount: Optional[Decimal] = Field(None, description="Estimated or actual monthly amount for this expense", example=300.00)
     description: Optional[str] = Field(None, description="Additional details about the expense", example="Weekly grocery shopping")
     timestamp: Optional[datetime] = Field(description="Timestamp of when the expense was recorded or occurred (if applicable)", default_factory=datetime.utcnow)
+    transaction_type: Optional[Literal['IN', 'OUT']] = Field(None, description="Type of transaction (e.g., OUT for expenses, IN for refunds and salary)", example="IN")
 
 class ExpenseDetailCreate(ExpenseDetailBase):
     """Model for creating an expense detail record for a user."""
