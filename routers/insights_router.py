@@ -11,11 +11,11 @@ import os
 from pydantic import Field
 from pydantic_ai import Agent, RunContext, Tool # type: ignore
 from pydantic_ai.providers.google_gla import GoogleGLAProvider # type: ignore
-from pydantic_ai.models.gemini import GeminiModel # type: ignore
+from pydantic_ai.models.gemini import GeminiModel, GeminiModelSettings # type: ignore
 
 import services
 import models as app_models
-from models import PriorityOutput, InsightOutput
+from models import InsightsResponse, PriorityOutput, InsightOutput
 from database import get_supabase_client
 
 from core.prompts import financial_analysis_prompt_template, prioritization_prompt, debt_prompt, savings_prompt, transaction_summarization_prompt
@@ -25,7 +25,17 @@ try:
     gemini_api_key = os.environ['GEMINI_API_KEY']
     if not gemini_api_key:
         raise KeyError("GEMINI_API_KEY environment variable not set or empty.")
-    model = GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=gemini_api_key))
+    
+    model_settings = GeminiModelSettings(
+        gemini_thinking_config={
+            "include_thoughts": 0,
+            "thinking_budget": 0
+        }
+    )
+
+    # model_settings = None
+    
+    model = GeminiModel('gemini-2.5-flash-preview-04-17', provider=GoogleGLAProvider(api_key=gemini_api_key))
 except KeyError as e:
     print(f"CRITICAL ERROR: {e}. Please set the GEMINI_API_KEY environment variable.")
     model = None
@@ -110,7 +120,7 @@ async def _run_ai_agent(
     input_str: str,
     user_id: int,
     agent_name: str,
-    max_retries: int = 3
+    max_retries: int = 5
 ) -> Any:
     """
     Helper function to run a pydantic-ai Agent asynchronously with retry logic (no delay).
@@ -137,7 +147,7 @@ async def _run_ai_agent(
     while current_retry < max_retries:
         try:
             print(f"Running {agent_name} for user_id: {user_id} asynchronously... (Attempt {current_retry + 1}/{max_retries})")
-            agent_response = await agent.run(input_str) 
+            agent_response = await agent.run(input_str, model_settings=model_settings) 
             print(f"{agent_name} processing completed for user_id: {user_id}.")
             return agent_response
         except Exception as e:
@@ -192,13 +202,13 @@ async def run_debt_pipeline(model, debt_prompt, agent_input, user_id, financial_
         [str(r.parts[0].content) for r in debt_agent_response.all_messages()[1:] if r.parts and len(r.parts) > 0 and hasattr(r.parts[0], 'content') and r.parts[0].content is not None]
     )
 
-    debt_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and credit.
+    debt_summarizer_prompt = """Given the context, summarize into multiple comprehensive insights for the user based on the user's financial knowledge on core concepts and credit.
 Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
 """
     debt_summarizer_agent = Agent(
         model=model,
         system_prompt=debt_summarizer_prompt,
-        result_type=InsightOutput
+        result_type=InsightsResponse
     )
     debt_summarizer_input = f"Debt management plan and recommendations:\n{debt_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
     debt_summarizer_response = await _run_ai_agent(
@@ -236,13 +246,13 @@ async def run_savings_pipeline(model, savings_prompt, agent_input, user_id, fina
         [str(r.parts[0].content) for r in savings_agent_response.all_messages()[1:] if r.parts and len(r.parts) > 0 and hasattr(r.parts[0], 'content') and r.parts[0].content is not None]
     )
 
-    savings_summarizer_prompt = """Given the context, summarize into a comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
+    savings_summarizer_prompt = """Given the context, summarize into multiple comprehensive insights for the user based on the user's financial knowledge on core concepts and budgeting.
 Your insights must be backed by analysis and data, it is crucial for you to show the calculations and analysis you have done to get to the insights, eg: before and after comparison, etc.
 """
     savings_summarizer_agent = Agent(
         model=model,
         system_prompt=savings_summarizer_prompt,
-        result_type=InsightOutput
+        result_type=InsightsResponse
     )
     savings_summarizer_input = f"Savings plan and recommendations:\n{savings_raw_results}\n\nFinancial knowledge level:{financial_knowledge_data}"
     savings_summarizer_response = await _run_ai_agent(
@@ -397,8 +407,9 @@ async def _run_prioritized_insight_pipelines(
             financial_knowledge_data
         )
         
+        print(f"Summarized insights for {priority} for user {user_id}:\n{summarized_insights.model_dump()}")
         insights_from_pipelines[f"{priority}_insights"] = summarized_insights.model_dump()
-        processed_insights_for_dependency.append((priority, summarized_insights.financial_goal))
+        processed_insights_for_dependency.append((priority, summarized_insights.insights))
 
     return insights_from_pipelines
 
