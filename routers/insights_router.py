@@ -561,11 +561,7 @@ async def generate_financial_report_and_insights_endpoint(
 
     print(f"Final insights payload for user {user_id}: {insights_payload_for_db}")
 
-    return {
-        "message": "Financial report and insights generated and stored successfully.",
-        "user_id": user_id,
-        "full_insights_payload": insights_payload_for_db
-    }
+    return insights_payload_for_db
 
 @router.get(
     "/latest",
